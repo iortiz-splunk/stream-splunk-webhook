@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  webhook-receiver:
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      # Pass environment variables from host or define them directly
+      STREAM_API_SECRET: "${STREAM_API_SECRET}"
+      SPLUNK_HEC_URL: "${SPLUNK_HEC_URL}"
+      SPLUNK_HEC_TOKEN: "${SPLUNK_HEC_TOKEN}"
+      REDIS_HOST: redis # Service name in docker-compose is the hostname
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      WEBHOOK_QUEUE_NAME: "${WEBHOOK_QUEUE_NAME}"
+      DEDUPLICATION_WINDOW_SECONDS: "${DEDUPLICATION_WINDOW_SECONDS}"
+    depends_on:
+      - redis
+
+  splunk-forwarder:
+    build: .
+    command: python worker.py
+    environment:
+      STREAM_API_SECRET: "${STREAM_API_SECRET}"
+      SPLUNK_HEC_URL: "${SPLUNK_HEC_URL}"
+      SPLUNK_HEC_TOKEN: "${SPLUNK_HEC_TOKEN}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      WEBHOOK_QUEUE_NAME: "${WEBHOOK_QUEUE_NAME}"
+      DEDUPLICATION_WINDOW_SECONDS: "${DEDUPLICATION_WINDOW_SECONDS}"
+    depends_on:
+      - redis
+      - webhook-receiver # Ensure receiver is up, though not strictly required for worker function
+
+volumes:
+  redis_data:
